@@ -57,3 +57,17 @@
 ## 確認方法の区別
 - コンパイル成功 ≠ 動作成功。マウス確認 ≠ スマホ実機確認。ブラウザのスマホ擬似操作（Playwright・タッチ再現）は「実機」ではない。
 - 実機で試せない項目は「未確認」と書く。
+
+## 実績ログ（2026-10-27 初回公開で実際に成功した手順）
+| 段階 | 実際にやったこと | 結果 |
+|---|---|---|
+| Git 管理場所 | `TitanUnity100/` と `Days/day102/` を読み取り確認 | どちらも Git 管理なし → 独立リポジトリを新規作成（Day101 の `335-coin-garden` と同じ方式） |
+| リポジトリ作成 | 所有者が Mac の GitHub CLI で `titan11111/336-twin-bell-shooter` を空・Public で作成 | 作成済み（Claude の環境からは作成 API が許可されないため、作成は所有者が行う） |
+| ソース push | 上記の含める／除外するの一覧を `git ls-files` で確認 → `git push -u origin main` | 80 ファイル、コミット 2ad6446。`git ls-remote` で手元と一致を確認 |
+| Web push | `Builds/TbWeb` の中身＋`.nojekyll`＋1行 README を別リポジトリ作業フォルダで `gh-pages` ブランチとして commit → `git push -u origin gh-pages` | 19 ファイル、コミット 1a79df8 |
+| Pages | `gh-pages` の push で自動的に有効化（branch gh-pages / path / / legacy / built）。所有者の `gh api -X POST …/pages` は 409（既に有効） | 反映直後は 404 → 数分後に表示 |
+| 公開確認 | 内蔵ブラウザで `https://titan11111.github.io/336-twin-bell-shooter/?fresh=…` を開き、`index.html`・loader・framework・data・wasm を fetch して SHA-256 を手元と比較 | 5 ファイルすべて一致。390×844 表示で起動・A で射撃・ドラッグで移動を確認 |
+| 実機 | iPhone Safari | 未確認 |
+
+- Pages 設定の API（`/repos/…/pages`）は Claude の環境のプロキシで 403 になる。設定が必要な時は所有者の `gh` か GitHub の Settings > Pages で行う。
+- 公開 URL は Claude のクラウド環境から直接は届かない（接続 000）。確認は Mac 側の内蔵ブラウザで行う。

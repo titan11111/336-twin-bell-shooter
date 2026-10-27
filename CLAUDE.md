@@ -28,4 +28,4 @@
 - 公開先の前例：Unityの日次作品は「1日1リポジトリ＋Webビルドのみ」をGitHub Pagesで公開（例 titan11111/335-coin-garden）。Day102シューターは未公開。
 
 - リリース手順の詳細：docs/RELEASE.md（編集→直接編集→コンパイル→Play確認→Webビルド→Git差分確認→Push→Web公開確認→Slack報告）。
-- ソース保存先：GitHub titan11111/336-twin-bell-shooter（main）。公開：同リポジトリ gh-pages ブランチ。
+- ソース保存先：GitHub titan11111/336-twin-bell-shooter（main）。公開：同リポジトリ gh-pages ブランチ → https://titan11111.github.io/336-twin-bell-shooter/ 。初回公開の実績は docs/RELEASE.md の「実績ログ」。
