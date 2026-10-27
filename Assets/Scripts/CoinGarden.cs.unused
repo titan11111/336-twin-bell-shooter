@@ -1,0 +1,166 @@
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UI;
+using UnityEngine.EventSystems;
+#if ENABLE_INPUT_SYSTEM
+using UnityEngine.InputSystem;
+using UnityEngine.InputSystem.UI;
+#endif
+
+// Unverified starter: compile and test in Unity before promoting to VerifiedStarter.
+public sealed class CoinGarden : MonoBehaviour
+{
+    // RECIPE-002 (Knowledge/RECIPES.md, 2026-10-26): CreatePrimitive's Capsule collider gets
+    // IL2CPP-stripped from WebGL builds unless a managed reference keeps the type alive.
+    static readonly System.Type[] KeepPrimitiveColliders = { typeof(CapsuleCollider) };
+
+    enum Phase { Title, Playing, Result }
+    Phase phase;
+    float remaining = 60;
+    int score;
+    Transform player;
+    readonly List<Transform> coins = new List<Transform>();
+    readonly List<HoldDirection> controls = new List<HoldDirection>();
+    Text hud, message;
+    GameObject overlay;
+    RectTransform safe;
+    Rect lastSafe;
+    Vector2Int lastSize;
+    Font font;
+
+    void Start()
+    {
+        font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        MakeWorld(); MakeUI();
+        phase = Phase.Title;
+        message.text = "COIN GARDEN\nCollect coins in 60 seconds\nWASD / Arrows / Touch buttons";
+        UpdateSafeArea();
+    }
+    void Update()
+    {
+        UpdateSafeArea();
+        if (phase != Phase.Playing) return;
+        remaining = Mathf.Max(0, remaining - Time.deltaTime);
+        if (remaining <= 0) { Finish(); return; }
+        Vector2 input = Vector2.zero;
+#if ENABLE_INPUT_SYSTEM
+        var kb = Keyboard.current;
+        if (kb != null)
+        {
+            if (kb.aKey.isPressed || kb.leftArrowKey.isPressed) input.x--;
+            if (kb.dKey.isPressed || kb.rightArrowKey.isPressed) input.x++;
+            if (kb.sKey.isPressed || kb.downArrowKey.isPressed) input.y--;
+            if (kb.wKey.isPressed || kb.upArrowKey.isPressed) input.y++;
+        }
+#elif ENABLE_LEGACY_INPUT_MANAGER
+        input = new Vector2(Input.GetAxisRaw("Horizontal"), Input.GetAxisRaw("Vertical"));
+#endif
+        foreach (var c in controls) if (c.Held) input += c.Direction;
+        input = Vector2.ClampMagnitude(input, 1);
+        var p = player.position + new Vector3(input.x, 0, input.y) * (6 * Time.deltaTime);
+        p.x = Mathf.Clamp(p.x, -8, 8); p.z = Mathf.Clamp(p.z, -6, 6); player.position = p;
+        foreach (var coin in coins)
+        {
+            if (!coin.gameObject.activeSelf) continue;
+            coin.Rotate(0, 90 * Time.deltaTime, 0, Space.World);
+            if (Vector2.Distance(new Vector2(p.x, p.z), new Vector2(coin.position.x, coin.position.z)) < 0.9f)
+            { coin.gameObject.SetActive(false); score++; }
+        }
+        hud.text = "COINS  " + score + " / 20      TIME  " + Mathf.CeilToInt(remaining);
+    }
+    void Begin()
+    {
+        score = 0; remaining = 60; player.position = new Vector3(0, 0.65f, 0);
+        foreach (var c in controls) c.Release();
+        foreach (var coin in coins) coin.gameObject.SetActive(true);
+        overlay.SetActive(false); phase = Phase.Playing;
+    }
+    void Finish()
+    {
+        phase = Phase.Result;
+        foreach (var c in controls) c.Release();
+        hud.text = "COINS  " + score + " / 20      TIME  0";
+        overlay.SetActive(true); message.text = "TIME UP\nYou collected " + score + " coins\nTry again?";
+    }
+    void OnApplicationFocus(bool focused) { if (!focused) foreach (var c in controls) c.Release(); }
+    void OnApplicationPause(bool paused) { if (paused) foreach (var c in controls) c.Release(); }
+    void MakeWorld()
+    {
+        var ground = Shape("Garden", PrimitiveType.Cube, new Vector3(0, -0.3f, 0), new Vector3(18, 0.5f, 14), new Color(0.12f, 0.3f, 0.28f));
+        player = Shape("Player", PrimitiveType.Capsule, new Vector3(0, 0.65f, 0), new Vector3(0.7f, 0.65f, 0.7f), new Color(0.3f, 0.85f, 1)).transform;
+        for (int i = 0; i < 20; i++)
+        {
+            float x = -6.4f + (i % 5) * 3.2f; float z = -4.5f + (i / 5) * 3;
+            coins.Add(Shape("Coin " + i, PrimitiveType.Cylinder, new Vector3(x, 0.7f, z), new Vector3(0.6f, 0.1f, 0.6f), new Color(1, 0.75f, 0.15f)).transform);
+        }
+        var cam = new GameObject("Game Camera").AddComponent<Camera>(); cam.tag = "MainCamera";
+        cam.transform.SetPositionAndRotation(new Vector3(0, 19, -12), Quaternion.Euler(58, 0, 0));
+        cam.orthographic = true; cam.orthographicSize = 11; cam.clearFlags = CameraClearFlags.SolidColor; cam.backgroundColor = new Color(0.03f, 0.07f, 0.11f);
+        cam.gameObject.AddComponent<AudioListener>();
+        var light = new GameObject("Sun").AddComponent<Light>(); light.type = LightType.Directional; light.intensity = 1.2f; light.transform.rotation = Quaternion.Euler(50, -30, 0);
+        RenderSettings.ambientLight = new Color(0.55f, 0.6f, 0.65f);
+    }
+    GameObject Shape(string label, PrimitiveType kind, Vector3 position, Vector3 scale, Color color)
+    {
+        var g = GameObject.CreatePrimitive(kind); g.name = label; g.transform.SetParent(transform);
+        g.transform.position = position; g.transform.localScale = scale;
+        var mat = new Material(Shader.Find("Standard")); mat.color = color; g.GetComponent<Renderer>().sharedMaterial = mat;
+        return g;
+    }
+    void MakeUI()
+    {
+        var canvasObject = new GameObject("Game UI", typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster));
+        canvasObject.transform.SetParent(transform);
+        var canvas = canvasObject.GetComponent<Canvas>(); canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        var scaler = canvasObject.GetComponent<CanvasScaler>(); scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(960, 540); scaler.matchWidthOrHeight = 0.5f;
+        safe = new GameObject("Safe Area", typeof(RectTransform)).GetComponent<RectTransform>(); safe.SetParent(canvasObject.transform, false);
+        safe.anchorMin = Vector2.zero; safe.anchorMax = Vector2.one; safe.offsetMin = safe.offsetMax = Vector2.zero;
+        hud = Label("HUD", safe, "COIN GARDEN", 26); Position(hud.rectTransform, new Vector2(0.5f, 1), new Vector2(0, -28), new Vector2(650, 50));
+        MakeDirection("LEFT", new Vector2(76, 108), Vector2.left);
+        MakeDirection("RIGHT", new Vector2(256, 108), Vector2.right);
+        MakeDirection("UP", new Vector2(166, 198), Vector2.up);
+        MakeDirection("DOWN", new Vector2(166, 18), Vector2.down);
+        overlay = new GameObject("Menu", typeof(RectTransform), typeof(Image)); overlay.transform.SetParent(safe, false);
+        var r = overlay.GetComponent<RectTransform>(); r.anchorMin = Vector2.zero; r.anchorMax = Vector2.one; r.offsetMin = r.offsetMax = Vector2.zero;
+        overlay.GetComponent<Image>().color = new Color(0.02f, 0.05f, 0.09f, 0.94f);
+        message = Label("Message", overlay.transform, "COIN GARDEN", 30); Position(message.rectTransform, new Vector2(0.5f, 0.5f), new Vector2(0, 60), new Vector2(560, 200));
+        var start = Button("START / RETRY", overlay.transform); Position(start.GetComponent<RectTransform>(), new Vector2(0.5f, 0.5f), new Vector2(0, -100), new Vector2(280, 80)); start.onClick.AddListener(Begin);
+        var events = new GameObject("EventSystem", typeof(EventSystem)); events.transform.SetParent(transform);
+#if ENABLE_INPUT_SYSTEM
+        events.AddComponent<InputSystemUIInputModule>();
+#else
+        events.AddComponent<StandaloneInputModule>();
+#endif
+    }
+    void MakeDirection(string label, Vector2 pos, Vector2 dir)
+    {
+        var b = Button(label, safe); Position(b.GetComponent<RectTransform>(), Vector2.zero, pos + new Vector2(0, 40), new Vector2(86, 80));
+        var hold = b.gameObject.AddComponent<HoldDirection>(); hold.Direction = dir; controls.Add(hold);
+    }
+    Button Button(string label, Transform parent)
+    {
+        var g = new GameObject(label, typeof(RectTransform), typeof(Image), typeof(Button)); g.transform.SetParent(parent, false);
+        g.GetComponent<Image>().color = new Color(0.1f, 0.4f, 0.5f, 0.94f);
+        var b = g.GetComponent<Button>(); b.targetGraphic = g.GetComponent<Image>();
+        var t = Label("Label", g.transform, label, 22); t.raycastTarget = false;
+        t.rectTransform.anchorMin = Vector2.zero; t.rectTransform.anchorMax = Vector2.one; t.rectTransform.offsetMin = t.rectTransform.offsetMax = Vector2.zero;
+        return b;
+    }
+    Text Label(string label, Transform parent, string value, int size)
+    {
+        var g = new GameObject(label, typeof(RectTransform), typeof(Text)); g.transform.SetParent(parent, false);
+        var t = g.GetComponent<Text>(); t.font = font; t.text = value; t.fontSize = size; t.alignment = TextAnchor.MiddleCenter; t.color = Color.white; t.raycastTarget = false; return t;
+    }
+    static void Position(RectTransform r, Vector2 anchor, Vector2 pos, Vector2 size)
+    { r.anchorMin = r.anchorMax = anchor; r.pivot = new Vector2(0.5f, 0.5f); r.anchoredPosition = pos; r.sizeDelta = size; }
+    void UpdateSafeArea()
+    {
+        if (safe == null || Screen.width == 0 || Screen.height == 0) return;
+        Rect a = Screen.safeArea; var sz = new Vector2Int(Screen.width, Screen.height);
+        if (a == lastSafe && sz == lastSize) return;
+        safe.anchorMin = new Vector2(a.xMin / Screen.width, a.yMin / Screen.height);
+        safe.anchorMax = new Vector2(a.xMax / Screen.width, a.yMax / Screen.height);
+        safe.offsetMin = safe.offsetMax = Vector2.zero; lastSafe = a; lastSize = sz;
+    }
+}
